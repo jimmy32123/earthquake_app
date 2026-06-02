@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import pydeck as pdk
+import os  # 웹 서버 경로 방어용 라이브러리 추가
 
 # 1. 페이지 레이아웃 설정
 st.set_page_config(
@@ -42,9 +43,14 @@ def load_model_safely(model_path):
         st.error(f"⚠️ 모델 파일(.pkl)을 로드하지 못했습니다 ({e}). 대신 가상 예측 모델 모드로 대시보드를 구동합니다.")
         return DummyModel()
 
+# 📌 [웹 서버 경로 방어] 현재 실행 중인 스크립트 위치를 기준으로 절대 경로 설정
+current_dir = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(current_dir, 'earthquake.csv')          # 👈 대소문자 주의 (깃허브와 일치해야 함)
+model_path = os.path.join(current_dir, 'earthquake_model.pkl')
+
 # 파일 로드 실행
-df = load_and_sample_data('earthquake.csv', n_samples=500)
-model = load_model_safely('earthquake_model.pkl')
+df = load_and_sample_data(csv_path, n_samples=500)
+model = load_model_safely(model_path)
 
 if df is not None:
     # 📌 [실제 확인된 CSV 컬럼명 맞춤 설정]
@@ -60,7 +66,6 @@ if df is not None:
     for col_key, real_col_name in actual_cols.items():
         if real_col_name in df.columns:
             df[real_col_name] = pd.to_numeric(df[real_col_name], errors='coerce')
-            # 전체가 NaN일 경우를 대비해 기본값 0.0 방어 후 평균값 채우기
             if df[real_col_name].isna().all():
                 df[real_col_name] = df[real_col_name].fillna(0.0)
             else:
@@ -93,30 +98,39 @@ if df is not None:
     else:
         df['normalized_risk'] = 0.5
 
-    # 5. 사이드바 조작 필터 기능 (🚨 웹 서버 환경 에러 집중 방어 구간)
+    # 5. 사이드바 조작 필터 기능 (🚨 최종 정밀 수정 구간)
     st.sidebar.header("🔍 데이터 필터")
     
-    min_mag = float(df[actual_cols['규모']].min())
-    max_mag = float(df[actual_cols['규모']].max())
+    actual_min = float(df[actual_cols['규모']].min())
+    actual_max = float(df[actual_cols['규모']].max())
     
-    # 방어코드 A: NaN 값이 들어오는 경우 기본값 지정
-    if np.isnan(min_mag) or np.isnan(max_mag):
-        min_mag, max_mag = 0.0, 10.0
+    # 기본 범위 설정
+    min_value_input = actual_min
+    max_value_input = actual_max
+    value_input = (actual_min, actual_max)
+    
+    # 🚨 최소/최대 값이 같아서 웹 서버 에러가 나는 경우 방어론 적용
+    if actual_min == actual_max:
+        # 슬라이더 작동 범위(레일)만 앞뒤로 0.1씩 넓혀서 에러 우회
+        min_value_input = max(0.0, actual_min - 0.1)
+        max_value_input = actual_max + 0.1
+        # 실제 선택 바(핸들)는 기존 데이터 값을 정확히 물고 있게 설정 (데이터 누락 방지)
+        value_input = (actual_min, actual_max)
         
-    # 방어코드 B: 데이터가 1개뿐이거나 모든 규모가 같아서 min과 max가 같을 때 슬라이더 고장 방지
-    if min_mag == max_mag:
-        min_mag = max(0.0, min_mag - 0.5)
-        max_mag = max_mag + 0.5
-    
+    # 혹시 모를 전체 NaN 데이터 대처용 최종 보루
+    if np.isnan(min_value_input) or np.isnan(max_value_input):
+        min_value_input, max_value_input = 0.0, 10.0
+        value_input = (0.0, 10.0)
+
     selected_mag = st.sidebar.slider(
         "지진 규모(Magnitudo) 선택",
-        min_value=min_mag,
-        max_value=max_mag,
-        value=(min_mag, max_mag),
+        min_value=min_value_input,
+        max_value=max_value_input,
+        value=value_input,
         step=0.1
     )
     
-    # 슬라이더 필터 적용
+    # 슬라이더 필터 적용 (실제 데이터 값이 완벽하게 포함됩니다)
     filtered_df = df[
         (df[actual_cols['규모']] >= selected_mag[0]) & 
         (df[actual_cols['규모']] <= selected_mag[1])
