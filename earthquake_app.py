@@ -35,7 +35,6 @@ def load_model_safely(model_path):
         # 가상 모델 정의: 숫자로 변환된 데이터를 받아 안전하게 숫자로 반환하도록 설계
         class DummyModel:
             def predict(self, X):
-                # 깊이와 규모 컬럼의 값을 숫자로 가중치 계산 (임시 위험도 생성)
                 try:
                     return X.iloc[:, 0].astype(float) * 0.1 + X.iloc[:, 2].astype(float) * 0.9
                 except:
@@ -52,29 +51,30 @@ if df is not None:
     actual_cols = {
         '위도': 'latitude',
         '경도': 'longitude',
-        '규모': 'magnitudo',  # 👈 제공해주신 진짜 이름으로 고정
-        '진원깊이': 'depth',   # 👈 제공해주신 진짜 이름으로 고정
-        '영향도': 'significance' # 대안으로 사용 가능한 가치 컬럼 매칭
+        '규모': 'magnitudo',  
+        '진원깊이': 'depth',   
+        '영향도': 'significance' 
     }
 
     # 수치형 데이터 컬럼들을 강제로 숫자 타입으로 변환 및 결측치 방어
     for col_key, real_col_name in actual_cols.items():
         if real_col_name in df.columns:
             df[real_col_name] = pd.to_numeric(df[real_col_name], errors='coerce')
-            df[real_col_name] = df[real_col_name].fillna(df[real_col_name].mean())
+            # 전체가 NaN일 경우를 대비해 기본값 0.0 방어 후 평균값 채우기
+            if df[real_col_name].isna().all():
+                df[real_col_name] = df[real_col_name].fillna(0.0)
+            else:
+                df[real_col_name] = df[real_col_name].fillna(df[real_col_name].mean())
         else:
-            # 영향도 등 혹시 없는 컬럼이 있다면 임시로 0 채우기
             df[real_col_name] = 0.0
 
     st.success(f"데이터 로드 및 수치 변환 성공! (컬럼 매칭 완료 -> 규모: magnitudo / 깊이: depth)")
 
     # 4. 모델 예측 진행
     try:
-        # 주피터 노트북 순서 반영 (진원깊이, 영향도, 규모)
         features = df[[actual_cols['진원깊이'], actual_cols['영향도'], actual_cols['규모']]]
         predictions = model.predict(features)
         
-        # 예측값 데이터 타입 정제 (강제로 float 변환)
         if hasattr(predictions, "flatten"):
             df['risk_score'] = pd.to_numeric(predictions.flatten(), errors='coerce')
         else:
@@ -93,10 +93,20 @@ if df is not None:
     else:
         df['normalized_risk'] = 0.5
 
-    # 5. 사이드바 조작 필터 기능
+    # 5. 사이드바 조작 필터 기능 (🚨 웹 서버 환경 에러 집중 방어 구간)
     st.sidebar.header("🔍 데이터 필터")
+    
     min_mag = float(df[actual_cols['규모']].min())
     max_mag = float(df[actual_cols['규모']].max())
+    
+    # 방어코드 A: NaN 값이 들어오는 경우 기본값 지정
+    if np.isnan(min_mag) or np.isnan(max_mag):
+        min_mag, max_mag = 0.0, 10.0
+        
+    # 방어코드 B: 데이터가 1개뿐이거나 모든 규모가 같아서 min과 max가 같을 때 슬라이더 고장 방지
+    if min_mag == max_mag:
+        min_mag = max(0.0, min_mag - 0.5)
+        max_mag = max_mag + 0.5
     
     selected_mag = st.sidebar.slider(
         "지진 규모(Magnitudo) 선택",
@@ -158,7 +168,7 @@ if df is not None:
         view_state = pdk.ViewState(
             latitude=mid_lat if not np.isnan(mid_lat) else 36.5,
             longitude=mid_lon if not np.isnan(mid_lon) else 127.5,
-            zoom=2.5, # 데이터 범위가 넓을 수 있어 줌아웃 조절
+            zoom=2.5, 
             pitch=20,
         )
 
