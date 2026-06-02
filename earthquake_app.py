@@ -53,7 +53,20 @@ df = load_and_sample_data(csv_path, n_samples=500)
 model = load_model_safely(model_path)
 
 if df is not None:
-    # 📌 [실제 확인된 CSV 컬럼명 맞춤 설정]
+    # 🚨 [컬럼 매칭 디버깅 안내 박스] 웹 화면에 파일 내 진짜 컬럼 이름 리스트를 출력합니다.
+    st.info(f"🔍 웹 서버 인식용 실제 CSV 파일 내 컬럼명 리스트: **{df.columns.tolist()}**")
+
+    # 📌 [핵심 수정] 어떤 형태의 CSV 컬럼명이 들어와도 '소문자 표준 이름'으로 다 바꾸는 매핑 규칙
+    rename_mapping = {
+        '위도': 'latitude', 'Latitude': 'latitude', 'latitude': 'latitude', 'lat': 'latitude',
+        '경도': 'longitude', 'Longitude': 'longitude', 'longitude': 'longitude', 'lon': 'longitude', 'lng': 'longitude',
+        '규모': 'magnitudo', 'Magnitude': 'magnitudo', 'magnitude': 'magnitudo', 'mag': 'magnitudo', 'magnitudo': 'magnitudo',
+        '진원깊이': 'depth', 'Depth': 'depth', 'depth': 'depth',
+        '영향도': 'significance', 'Significance': 'significance', 'significance': 'significance', 'sig': 'significance'
+    }
+    df = df.rename(columns=rename_mapping)
+
+    # 📌 통일된 기준 컬럼명 설정 (프로그램 전반에 사용)
     actual_cols = {
         '위도': 'latitude',
         '경도': 'longitude',
@@ -71,9 +84,10 @@ if df is not None:
             else:
                 df[real_col_name] = df[real_col_name].fillna(df[real_col_name].mean())
         else:
+            # 매핑 규칙을 적용했음에도 여전히 파일 내에 없는 컬럼이라면 임시로 0.0을 채웁니다.
             df[real_col_name] = 0.0
 
-    st.success(f"데이터 로드 및 수치 변환 성공! (컬럼 매칭 완료 -> 규모: magnitudo / 깊이: depth)")
+    st.success(f"데이터 로드 및 수치 변환 성공! (컬럼 자동 맵핑 적용 완료)")
 
     # 4. 모델 예측 진행
     try:
@@ -98,7 +112,7 @@ if df is not None:
     else:
         df['normalized_risk'] = 0.5
 
-    # 5. 사이드바 조작 필터 기능 (🚨 슬라이더 0.1 고정 현상 최종 해결)
+    # 5. 사이드바 조작 필터 기능
     st.sidebar.header("🔍 데이터 필터")
     
     actual_min = float(df[actual_cols['규모']].min())
