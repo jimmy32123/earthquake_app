@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import pydeck as pdk
-import os  # 웹 서버 경로 방어용 라이브러리 추가
+import os
 
 # 1. 페이지 레이아웃 설정
 st.set_page_config(
@@ -45,7 +45,7 @@ def load_model_safely(model_path):
 
 # 📌 [웹 서버 경로 방어] 현재 실행 중인 스크립트 위치를 기준으로 절대 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
-csv_path = os.path.join(current_dir, 'earthquake.csv')          # 👈 대소문자 주의 (깃허브와 일치해야 함)
+csv_path = os.path.join(current_dir, 'earthquake.csv')          # 대소문자 주의 (깃허브와 일치해야 함)
 model_path = os.path.join(current_dir, 'earthquake_model.pkl')
 
 # 파일 로드 실행
@@ -98,29 +98,29 @@ if df is not None:
     else:
         df['normalized_risk'] = 0.5
 
-    # 5. 사이드바 조작 필터 기능 (🚨 최종 정밀 수정 구간)
+    # 5. 사이드바 조작 필터 기능 (🚨 슬라이더 0.1 고정 현상 최종 해결)
     st.sidebar.header("🔍 데이터 필터")
     
     actual_min = float(df[actual_cols['규모']].min())
     actual_max = float(df[actual_cols['규모']].max())
     
-    # 기본 범위 설정
-    min_value_input = actual_min
-    max_value_input = actual_max
-    value_input = (actual_min, actual_max)
-    
-    # 🚨 최소/최대 값이 같아서 웹 서버 에러가 나는 경우 방어론 적용
-    if actual_min == actual_max:
-        # 슬라이더 작동 범위(레일)만 앞뒤로 0.1씩 넓혀서 에러 우회
-        min_value_input = max(0.0, actual_min - 0.1)
-        max_value_input = actual_max + 0.1
-        # 실제 선택 바(핸들)는 기존 데이터 값을 정확히 물고 있게 설정 (데이터 누락 방지)
-        value_input = (actual_min, actual_max)
+    # 데이터가 비정상(모두 동일한 값이거나 NaN)일 경우 슬라이더 범위를 0.0 ~ 10.0으로 넉넉하게 고정
+    if actual_min == actual_max or np.isnan(actual_min) or np.isnan(actual_max):
+        min_value_input = 0.0
+        max_value_input = 10.0
         
-    # 혹시 모를 전체 NaN 데이터 대처용 최종 보루
-    if np.isnan(min_value_input) or np.isnan(max_value_input):
-        min_value_input, max_value_input = 0.0, 10.0
-        value_input = (0.0, 10.0)
+        # 실제 값이 유효하다면 그 값을 기준으로 초기 선택 영역 설정
+        if not np.isnan(actual_min):
+            val_start = max(0.0, actual_min - 1.0)
+            val_end = min(10.0, actual_max + 1.0)
+            value_input = (val_start, val_end)
+        else:
+            value_input = (0.0, 10.0)
+    else:
+        # 데이터가 정상적으로 다양하게 있을 경우 실제 범위 사용
+        min_value_input = actual_min
+        max_value_input = actual_max
+        value_input = (actual_min, actual_max)
 
     selected_mag = st.sidebar.slider(
         "지진 규모(Magnitudo) 선택",
@@ -130,7 +130,7 @@ if df is not None:
         step=0.1
     )
     
-    # 슬라이더 필터 적용 (실제 데이터 값이 완벽하게 포함됩니다)
+    # 슬라이더 필터 적용
     filtered_df = df[
         (df[actual_cols['규모']] >= selected_mag[0]) & 
         (df[actual_cols['규모']] <= selected_mag[1])
